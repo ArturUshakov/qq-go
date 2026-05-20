@@ -38,12 +38,21 @@ func RegisterBase(registry *command.Registry) error {
 			Names:       []string{"completion"},
 			Group:       "base",
 			Description: "Генерирует shell completion: bash, zsh, fish",
-			Usage:       "qq completion <bash|zsh|fish>",
+			Usage:       "qq completion [bash|zsh|fish]",
 			Run: func(args []string) error {
-				if len(args) == 0 {
-					return fmt.Errorf("укажите shell: bash, zsh или fish")
+				shell := ""
+
+				if len(args) > 0 {
+					shell = strings.ToLower(strings.TrimSpace(args[0]))
+				} else {
+					shell = detectShell()
 				}
-				return printCompletion(registry, args[0])
+
+				if shell == "" {
+					return fmt.Errorf("не удалось определить shell, укажите явно: qq completion bash, qq completion zsh или qq completion fish")
+				}
+
+				return printCompletion(registry, shell)
 			},
 		},
 		{
@@ -79,6 +88,18 @@ func RegisterBase(registry *command.Registry) error {
 		}
 	}
 	return nil
+}
+
+func detectShell() string {
+	shellPath := os.Getenv("SHELL")
+	shellName := strings.ToLower(filepath.Base(shellPath))
+
+	switch shellName {
+	case "bash", "zsh", "fish":
+		return shellName
+	default:
+		return ""
+	}
 }
 
 func printCompletion(registry *command.Registry, shell string) error {
