@@ -121,7 +121,7 @@ func printCompletion(registry *command.Registry, shell string) error {
 }
 
 func completionScript(registry *command.Registry, shell string) (string, error) {
-	names := registry.Names()
+	names := registry.AllNames()
 	switch shell {
 	case "bash":
 		return fmt.Sprintf("_qq_completion() {\n  local cur=\"${COMP_WORDS[COMP_CWORD]}\"\n  COMPREPLY=( $(compgen -W '%s' -- \"$cur\") )\n}\ncomplete -F _qq_completion qq\n", strings.Join(names, " ")), nil

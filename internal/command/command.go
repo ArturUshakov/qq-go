@@ -67,6 +67,15 @@ func (registry *Registry) Names() []string {
 	return names
 }
 
+func (registry *Registry) AllNames() []string {
+	names := make([]string, 0, len(registry.commands))
+	for name := range registry.commands {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
 func (registry *Registry) CommandsByGroup(group string) []Command {
 	seen := make(map[string]struct{})
 	commands := make([]Command, 0)
