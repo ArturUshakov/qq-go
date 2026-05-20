@@ -89,14 +89,26 @@ func fetchLatestRelease() (githubRelease, error) {
 		return githubRelease{}, err
 	}
 	request.Header.Set("User-Agent", "qq-cli")
+	if token := githubToken(); token != "" {
+		request.Header.Set("Authorization", "Bearer "+token)
+	}
 	response, err := client.Do(request)
 	if err != nil {
-		return githubRelease{}, fmt.Errorf("не удалось получить latest release: %w", err)
+		return fetchLatestReleaseFromRedirect()
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
+		if response.StatusCode == http.StatusForbidden || response.StatusCode == http.StatusTooManyRequests {
+			return fetchLatestReleaseFromRedirect()
+		}
 		body, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
-		return githubRelease{}, fmt.Errorf("GitHub API вернул %s: %s", response.Status, strings.TrimSpace(string(body)))
+		apiErr := fmt.Errorf("GitHub API вернул %s: %s", response.Status, strings.TrimSpace(string(body)))
+		release, redirectErr := fetchLatestReleaseFromRedirect()
+		if redirectErr == nil {
+			output.Warn("GitHub API недоступен (%s), используется fallback через releases/latest", response.Status)
+			return release, nil
+		}
+		return githubRelease{}, apiErr
 	}
 	var release githubRelease
 	if err := json.NewDecoder(response.Body).Decode(&release); err != nil {
@@ -105,12 +117,61 @@ func fetchLatestRelease() (githubRelease, error) {
 	return release, nil
 }
 
+func githubToken() string {
+	if token := strings.TrimSpace(os.Getenv("GITHUB_TOKEN")); token != "" {
+		return token
+	}
+	return strings.TrimSpace(os.Getenv("GH_TOKEN"))
+}
+
+func fetchLatestReleaseFromRedirect() (githubRelease, error) {
+	client := &http.Client{
+		Timeout: 20 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	request, err := http.NewRequest(http.MethodGet, "https://github.com/"+githubRepository+"/releases/latest", nil)
+	if err != nil {
+		return githubRelease{}, err
+	}
+	request.Header.Set("User-Agent", "qq-cli")
+	response, err := client.Do(request)
+	if err != nil {
+		return githubRelease{}, fmt.Errorf("не удалось определить latest release через GitHub redirect: %w", err)
+	}
+	defer response.Body.Close()
+
+	location := response.Header.Get("Location")
+	if location == "" {
+		return githubRelease{}, fmt.Errorf("GitHub releases/latest не вернул redirect")
+	}
+	tag := strings.TrimSpace(pathBase(location))
+	if tag == "" || tag == "latest" {
+		return githubRelease{}, fmt.Errorf("не удалось извлечь tag из redirect: %s", location)
+	}
+	return githubRelease{TagName: tag}, nil
+}
+
+func pathBase(value string) string {
+	value = strings.TrimRight(value, "/")
+	index := strings.LastIndex(value, "/")
+	if index == -1 {
+		return value
+	}
+	return value[index+1:]
+}
+
 func findReleaseAsset(release githubRelease) (string, string, error) {
 	assetPart := fmt.Sprintf("%s_%s", runtime.GOOS, runtime.GOARCH)
+	assetName := "qq_" + assetPart + ".tar.gz"
 	for _, asset := range release.Assets {
 		if strings.Contains(asset.Name, assetPart) && strings.HasSuffix(asset.Name, ".tar.gz") {
 			return asset.BrowserDownloadURL, asset.Name, nil
 		}
+	}
+	if release.TagName != "" {
+		return "https://github.com/" + githubRepository + "/releases/download/" + release.TagName + "/" + assetName, assetName, nil
 	}
 	return "", "", fmt.Errorf("не найден release-asset для %s/%s", runtime.GOOS, runtime.GOARCH)
 }

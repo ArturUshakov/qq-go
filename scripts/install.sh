@@ -29,17 +29,33 @@ detect_arch() {
 }
 
 fetch_latest_tag() {
+  tag=""
+
   if command_exists curl; then
-    curl -fsSL "https://api.github.com/repos/$REPOSITORY/releases/latest" \
+    tag="$(curl -fsSL "https://api.github.com/repos/$REPOSITORY/releases/latest" 2>/dev/null \
       | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' \
-      | head -n 1
+      | head -n 1 || true)"
+
+    if [ -z "$tag" ]; then
+      tag="$(curl -fsIL -o /dev/null -w '%{url_effective}' "https://github.com/$REPOSITORY/releases/latest" 2>/dev/null \
+        | sed -n 's#.*/tag/\([^/?#]*\).*#\1#p' \
+        | head -n 1 || true)"
+    fi
   elif command_exists wget; then
-    wget -qO- "https://api.github.com/repos/$REPOSITORY/releases/latest" \
+    tag="$(wget -qO- "https://api.github.com/repos/$REPOSITORY/releases/latest" 2>/dev/null \
       | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' \
-      | head -n 1
+      | head -n 1 || true)"
+
+    if [ -z "$tag" ]; then
+      tag="$(wget --max-redirect=0 --server-response --spider "https://github.com/$REPOSITORY/releases/latest" 2>&1 \
+        | sed -n 's#.*Location: .*/tag/\([^/?# ]*\).*#\1#p' \
+        | head -n 1 || true)"
+    fi
   else
     fail "нужен curl или wget"
   fi
+
+  printf '%s' "$tag"
 }
 
 download() {
