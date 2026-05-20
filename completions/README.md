@@ -1,5 +1,11 @@
 # Completion
 
+Автоматическая установка для текущего shell:
+
+```bash
+qq completion install
+```
+
 Генерация completion выполняется установленным бинарником:
 
 ```bash

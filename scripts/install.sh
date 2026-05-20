@@ -145,6 +145,12 @@ info "qq установлен: $INSTALL_DIR/$BINARY_NAME"
 add_install_dir_to_path
 warn_if_shadowed
 
+if "$INSTALL_DIR/$BINARY_NAME" completion install; then
+  :
+else
+  info "Не удалось автоматически установить completion. Выполните вручную: qq completion install"
+fi
+
 if command_exists qq; then
   qq version || true
 else

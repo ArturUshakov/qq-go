@@ -165,6 +165,24 @@ qq git-ignore --status
 
 ## Completion
 
+Автоматическая установка для текущего shell:
+
+```bash
+qq completion install
+```
+
+Можно указать shell явно:
+
+```bash
+qq completion install bash
+qq completion install zsh
+qq completion install fish
+```
+
+`scripts/install.sh` запускает установку completion автоматически после установки бинарника.
+
+Ручная генерация:
+
 Bash:
 
 ```bash
@@ -203,40 +221,8 @@ make release-local VERSION=v0.1.0
 
 ## Релиз
 
-Создать тег:
+Опубликовать новый тег и запустить GitHub Actions release:
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
-```
-
-GitHub Actions соберет архивы:
-
-```text
-qq_linux_amd64.tar.gz
-qq_linux_arm64.tar.gz
-qq_darwin_amd64.tar.gz
-qq_darwin_arm64.tar.gz
-checksums.txt
-install.sh
-uninstall.sh
-```
-
-## Совместимость с предыдущими алиасами
-
-Сохранены короткие команды из Python-версии:
-
-```text
--l    list
--d    down
--e    exec
--net  network
--dni  cleanup-docker-images
--pb   prune-builder
--clr  clear
--ch   chmod
--gph  generate-password-hash
--eip  external-ip
--gi   git-ignore
--h    help
+make release VERSION=v0.1.0
 ```

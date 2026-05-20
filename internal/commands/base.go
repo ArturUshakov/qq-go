@@ -37,10 +37,19 @@ func RegisterBase(registry *command.Registry) error {
 		{
 			Names:       []string{"completion"},
 			Group:       "base",
-			Description: "Генерирует shell completion: bash, zsh, fish",
-			Usage:       "qq completion [bash|zsh|fish]",
+			Description: "Генерирует или устанавливает shell completion: bash, zsh, fish",
+			Usage:       "qq completion [bash|zsh|fish|install]",
 			Run: func(args []string) error {
 				shell := ""
+
+				if len(args) > 0 && strings.EqualFold(strings.TrimSpace(args[0]), "install") {
+					if len(args) > 1 {
+						shell = strings.ToLower(strings.TrimSpace(args[1]))
+					} else {
+						shell = detectShell()
+					}
+					return installCompletion(registry, shell)
+				}
 
 				if len(args) > 0 {
 					shell = strings.ToLower(strings.TrimSpace(args[0]))
@@ -103,28 +112,131 @@ func detectShell() string {
 }
 
 func printCompletion(registry *command.Registry, shell string) error {
+	completion, err := completionScript(registry, shell)
+	if err != nil {
+		return err
+	}
+	fmt.Print(completion)
+	return nil
+}
+
+func completionScript(registry *command.Registry, shell string) (string, error) {
 	names := registry.Names()
 	switch shell {
 	case "bash":
-		fmt.Printf("_qq_completion() {\n")
-		fmt.Printf("  local cur=\"${COMP_WORDS[COMP_CWORD]}\"\n")
-		fmt.Printf("  COMPREPLY=( $(compgen -W '%s' -- \"$cur\") )\n", strings.Join(names, " "))
-		fmt.Printf("}\ncomplete -F _qq_completion qq\n")
+		return fmt.Sprintf("_qq_completion() {\n  local cur=\"${COMP_WORDS[COMP_CWORD]}\"\n  COMPREPLY=( $(compgen -W '%s' -- \"$cur\") )\n}\ncomplete -F _qq_completion qq\n", strings.Join(names, " ")), nil
 	case "zsh":
-		fmt.Printf("#compdef qq\n")
-		fmt.Printf("_qq() {\n")
-		fmt.Printf("  local -a commands\n")
-		fmt.Printf("  commands=(%s)\n", strings.Join(names, " "))
-		fmt.Printf("  _describe 'qq commands' commands\n")
-		fmt.Printf("}\n_qq \"$@\"\n")
+		return fmt.Sprintf("#compdef qq\n_qq() {\n  local -a commands\n  commands=(%s)\n  _describe 'qq commands' commands\n}\n_qq \"$@\"\n", strings.Join(names, " ")), nil
 	case "fish":
+		var builder strings.Builder
 		for _, name := range names {
-			fmt.Printf("complete -c qq -f -a %s\n", name)
+			fmt.Fprintf(&builder, "complete -c qq -f -a %s\n", name)
 		}
+		return builder.String(), nil
 	default:
-		return fmt.Errorf("неподдерживаемый shell: %s", shell)
+		return "", fmt.Errorf("неподдерживаемый shell: %s", shell)
 	}
+}
+
+func installCompletion(registry *command.Registry, shell string) error {
+	if shell == "" {
+		return fmt.Errorf("не удалось определить shell, укажите явно: qq completion install bash, qq completion install zsh или qq completion install fish")
+	}
+
+	completion, err := completionScript(registry, shell)
+	if err != nil {
+		return err
+	}
+
+	path, err := completionPath(shell)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(path, []byte(completion), 0644); err != nil {
+		return err
+	}
+
+	switch shell {
+	case "bash":
+		if err := ensureBashCompletionLoaded(path); err != nil {
+			return err
+		}
+	case "zsh":
+		if err := ensureZshCompletionLoaded(path); err != nil {
+			return err
+		}
+	}
+
+	output.Success("Completion установлен: %s", path)
+	output.Info("Откройте новый терминал или перезапустите shell.")
 	return nil
+}
+
+func completionPath(shell string) (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+
+	switch shell {
+	case "bash":
+		return filepath.Join(home, ".local", "share", "bash-completion", "completions", "qq"), nil
+	case "zsh":
+		return filepath.Join(home, ".zsh", "completions", "_qq"), nil
+	case "fish":
+		return filepath.Join(home, ".config", "fish", "completions", "qq.fish"), nil
+	default:
+		return "", fmt.Errorf("неподдерживаемый shell: %s", shell)
+	}
+}
+
+func ensureBashCompletionLoaded(path string) error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+
+	configPath := filepath.Join(home, ".bashrc")
+	if _, err := os.Stat(filepath.Join(home, ".bash_profile")); err == nil {
+		configPath = filepath.Join(home, ".bash_profile")
+	}
+
+	block := fmt.Sprintf("\n# qq completion\nif [ -f %q ]; then\n  . %q\nfi\n", path, path)
+	return appendBlockIfMissing(configPath, "# qq completion", block)
+}
+
+func ensureZshCompletionLoaded(path string) error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+
+	completionDir := filepath.Dir(path)
+	block := fmt.Sprintf("\n# qq completion\nfpath=(%q $fpath)\nautoload -Uz compinit\ncompinit\n", completionDir)
+	return appendBlockIfMissing(filepath.Join(home, ".zshrc"), "# qq completion", block)
+}
+
+func appendBlockIfMissing(path string, marker string, block string) error {
+	content, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if strings.Contains(string(content), marker) {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return err
+	}
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	_, err = file.WriteString(block)
+	return err
 }
 
 func runDoctor() error {
