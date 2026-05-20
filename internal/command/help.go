@@ -26,7 +26,6 @@ func PrintHelp(registry *Registry) {
 	output.Plain("Примеры:")
 	output.Plain("  qq list")
 	output.Plain("  qq exec app -r")
-	output.Plain("  qq clear --dry-run")
 	output.Plain("  qq update")
 }
 

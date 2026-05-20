@@ -1,10 +1,7 @@
 package commands
 
 import (
-	"bufio"
 	"fmt"
-	"os"
-	"strings"
 
 	"github.com/ArturUshakov/qq-go/internal/command"
 	"github.com/ArturUshakov/qq-go/internal/execx"
@@ -15,7 +12,6 @@ func RegisterCleanup(registry *command.Registry) error {
 	commands := []command.Command{
 		{Names: []string{"cleanup-docker-images", "-dni"}, Group: "cleanup", Description: "Удалить dangling Docker images", Run: cleanupDockerImagesCommand},
 		{Names: []string{"prune-builder", "-pb"}, Group: "cleanup", Description: "Удалить неиспользуемый Docker builder cache", Run: pruneBuilderCommand},
-		{Names: []string{"clear", "-clr"}, Group: "cleanup", Description: "Очистить Docker: dangling images, builder cache, volumes", Run: clearDockerCommand},
 	}
 	for _, cmd := range commands {
 		if err := registry.Register(cmd); err != nil {
@@ -31,40 +27,6 @@ func cleanupDockerImagesCommand(args []string) error {
 
 func pruneBuilderCommand(args []string) error {
 	return pruneBuilder(false, true)
-}
-
-func clearDockerCommand(args []string) error {
-	flags := parseFlags(args)
-	if flags["-h"] || flags["--help"] {
-		printClearHelp()
-		return nil
-	}
-	dryRun := flags["--dry-run"]
-	safe := flags["--safe"]
-	verbose := flags["--verbose"]
-	skipConfirm := flags["--yes"] || flags["--force"]
-	if !dryRun && !skipConfirm {
-		fmt.Print("Уверены, что хотите продолжить очистку Docker? (y/n): ")
-		scanner := bufio.NewScanner(os.Stdin)
-		if !scanner.Scan() || strings.ToLower(strings.TrimSpace(scanner.Text())) != "y" {
-			output.Warn("Очистка отменена пользователем")
-			return nil
-		}
-	}
-	output.Info("Объём Docker перед очисткой:")
-	_ = execx.RunPassthrough("docker", "system", "df")
-	if err := cleanupDockerImages(dryRun, safe, verbose); err != nil {
-		return err
-	}
-	if err := pruneBuilder(dryRun, verbose); err != nil {
-		return err
-	}
-	if err := cleanupVolumes(dryRun, verbose); err != nil {
-		return err
-	}
-	output.Info("\nОбъём Docker после очистки:")
-	_ = execx.RunPassthrough("docker", "system", "df")
-	return nil
 }
 
 func cleanupDockerImages(dryRun bool, safe bool, verbose bool) error {
@@ -135,40 +97,4 @@ func pruneBuilder(dryRun bool, verbose bool) error {
 	}
 	output.Success("Builder cache очищен")
 	return nil
-}
-
-func cleanupVolumes(dryRun bool, verbose bool) error {
-	output.Info("Очистка неиспользуемых volumes...")
-	if dryRun {
-		output.Info("[dry-run] Был бы выполнен: docker volume prune -f")
-		return nil
-	}
-	if verbose {
-		if err := execx.RunPassthrough("docker", "volume", "prune", "-f"); err != nil {
-			return err
-		}
-	} else if err := execx.RunQuiet("docker", "volume", "prune", "-f"); err != nil {
-		return err
-	}
-	output.Success("Неиспользуемые volumes удалены")
-	return nil
-}
-
-func parseFlags(args []string) map[string]bool {
-	flags := make(map[string]bool)
-	for _, arg := range args {
-		flags[arg] = true
-	}
-	return flags
-}
-
-func printClearHelp() {
-	output.Plain("Очистка Docker-ресурсов")
-	output.Plain("Использование: qq clear [флаги]")
-	output.Plain("Флаги:")
-	output.Plain("  --dry-run   Показать действия без удаления")
-	output.Plain("  --safe      Удалять только явно неиспользуемые images")
-	output.Plain("  --verbose   Показывать вывод Docker-команд")
-	output.Plain("  --yes       Пропустить подтверждение")
-	output.Plain("  --force     То же, что --yes")
 }

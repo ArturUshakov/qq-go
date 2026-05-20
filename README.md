@@ -102,24 +102,6 @@ qq -net
 
 ## Очистка Docker
 
-Dry-run без удаления:
-
-```bash
-qq clear --dry-run
-```
-
-Очистка без подтверждения:
-
-```bash
-qq clear --yes
-```
-
-Подробный вывод Docker-команд:
-
-```bash
-qq clear --verbose
-```
-
 Только dangling images:
 
 ```bash
@@ -141,13 +123,6 @@ qq -pb
 ```bash
 qq generate-password-hash 'secret'
 qq -gph 'secret'
-```
-
-Показать локальный IP:
-
-```bash
-qq external-ip
-qq -eip
 ```
 
 Отключить отслеживание chmod-изменений в текущем Git-репозитории:
