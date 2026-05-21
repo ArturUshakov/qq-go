@@ -89,7 +89,7 @@ func RegisterBase(registry *command.Registry) error {
 				return runDoctor()
 			},
 		},
-		updateCommand(),
+		updateCommand(registry),
 	}
 	for _, cmd := range commands {
 		if err := registry.Register(cmd); err != nil {

@@ -29,18 +29,18 @@ type githubRelease struct {
 	} `json:"assets"`
 }
 
-func updateCommand() command.Command {
+func updateCommand(registry *command.Registry) command.Command {
 	return command.Command{
 		Names:       []string{"update", "self-update"},
 		Group:       "base",
 		Description: "Обновляет qq до последнего GitHub Release",
 		Run: func(args []string) error {
-			return selfUpdate()
+			return selfUpdate(registry)
 		},
 	}
 }
 
-func selfUpdate() error {
+func selfUpdate(registry *command.Registry) error {
 	if version.Version == "dev" {
 		output.Warn("Текущая сборка dev. Проверка версии будет выполнена без сравнения.")
 	}
@@ -79,7 +79,20 @@ func selfUpdate() error {
 		return err
 	}
 	output.Success("qq обновлен до %s", release.TagName)
+	updateCompletionAfterSelfUpdate(registry)
 	return nil
+}
+
+func updateCompletionAfterSelfUpdate(registry *command.Registry) {
+	shell := detectShell()
+	if shell == "" {
+		output.Warn("Не удалось определить shell для обновления completion. Выполните вручную: qq completion install")
+		return
+	}
+	if err := installCompletion(registry, shell); err != nil {
+		output.Warn("Не удалось обновить completion: %s", err.Error())
+		output.Info("Выполните вручную: qq completion install %s", shell)
+	}
 }
 
 func fetchLatestRelease() (githubRelease, error) {
