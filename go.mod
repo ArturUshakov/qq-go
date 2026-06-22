@@ -1,3 +1,3 @@
-module github.com/ArturUshakov/qq-go
+module github.com/SolasWyrd/qq-go
 
 go 1.22

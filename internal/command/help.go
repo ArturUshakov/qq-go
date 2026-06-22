@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/ArturUshakov/qq-go/internal/output"
+	"github.com/SolasWyrd/qq-go/internal/output"
 )
 
 func PrintHelp(registry *Registry) {

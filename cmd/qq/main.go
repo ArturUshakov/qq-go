@@ -3,8 +3,8 @@ package main
 import (
 	"os"
 
-	"github.com/ArturUshakov/qq-go/internal/app"
-	"github.com/ArturUshakov/qq-go/internal/output"
+	"github.com/SolasWyrd/qq-go/internal/app"
+	"github.com/SolasWyrd/qq-go/internal/output"
 )
 
 func main() {

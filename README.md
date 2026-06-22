@@ -19,20 +19,16 @@
 ## Установка
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ArturUshakov/qq-go/main/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/SolasWyrd/qq-go/main/scripts/install.sh | sh
 ```
 
 По умолчанию бинарник устанавливается в:
 
 ```text
-~/.local/bin/qq
+/usr/local/bin/qq
 ```
 
-Можно изменить директорию установки:
-
-```bash
-QQ_INSTALL_DIR="$HOME/.qq/bin" sh scripts/install.sh
-```
+Установка требует права записи в `/usr/local/bin` или доступ к `sudo`. Архив проверяется по SHA-256 перед установкой.
 
 ## Обновление
 
@@ -40,7 +36,7 @@ QQ_INSTALL_DIR="$HOME/.qq/bin" sh scripts/install.sh
 qq update
 ```
 
-Команда скачивает последний GitHub Release, выбирает архив под текущую ОС/архитектуру и заменяет текущий бинарник.
+Команда скачивает последний GitHub Release, проверяет SHA-256 и атомарно устанавливает бинарник в `/usr/local/bin/qq`.
 
 ## Основные команды
 
@@ -118,12 +114,21 @@ qq -pb
 
 ## Системные команды
 
-Сгенерировать password hash:
+Сгенерировать password hash без передачи пароля через аргументы процесса:
 
 ```bash
-qq generate-password-hash 'secret'
-qq -gph 'secret'
+qq generate-password-hash
+qq -gph
 ```
+
+
+Выставить права `775` рекурсивно для текущей директории:
+
+```bash
+qq chmod
+```
+
+Команда намеренно применяется ко всему содержимому текущего каталога. Перед запуском проверьте `pwd`.
 
 Отключить отслеживание chmod-изменений в текущем Git-репозитории:
 

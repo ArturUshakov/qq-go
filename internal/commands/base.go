@@ -7,9 +7,10 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/ArturUshakov/qq-go/internal/command"
-	"github.com/ArturUshakov/qq-go/internal/output"
-	"github.com/ArturUshakov/qq-go/internal/version"
+	"github.com/SolasWyrd/qq-go/internal/command"
+	"github.com/SolasWyrd/qq-go/internal/execx"
+	"github.com/SolasWyrd/qq-go/internal/output"
+	"github.com/SolasWyrd/qq-go/internal/version"
 )
 
 func RegisterBase(registry *command.Registry) error {
@@ -242,11 +243,18 @@ func appendBlockIfMissing(path string, marker string, block string) error {
 func runDoctor() error {
 	output.Title("Проверка окружения")
 	output.Plain("OS/Arch: %s/%s", runtime.GOOS, runtime.GOARCH)
-	checkTool("docker")
-	checkTool("git")
-	checkTool("curl")
-	checkTool("php")
-	checkTool("openssl")
-	checkTool("htpasswd")
+	required := []string{"docker", "git", "openssl", "stty"}
+	missing := make([]string, 0)
+	for _, tool := range required {
+		if execx.Exists(tool) {
+			output.Success("✔ %s найден", tool)
+		} else {
+			output.Warn("⚠ %s не найден", tool)
+			missing = append(missing, tool)
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("отсутствуют обязательные утилиты: %s", strings.Join(missing, ", "))
+	}
 	return nil
 }

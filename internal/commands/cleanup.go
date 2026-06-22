@@ -3,9 +3,9 @@ package commands
 import (
 	"fmt"
 
-	"github.com/ArturUshakov/qq-go/internal/command"
-	"github.com/ArturUshakov/qq-go/internal/execx"
-	"github.com/ArturUshakov/qq-go/internal/output"
+	"github.com/SolasWyrd/qq-go/internal/command"
+	"github.com/SolasWyrd/qq-go/internal/execx"
+	"github.com/SolasWyrd/qq-go/internal/output"
 )
 
 func RegisterCleanup(registry *command.Registry) error {
@@ -22,14 +22,14 @@ func RegisterCleanup(registry *command.Registry) error {
 }
 
 func cleanupDockerImagesCommand(args []string) error {
-	return cleanupDockerImages(false, false, true)
+	return cleanupDockerImages(false, true)
 }
 
 func pruneBuilderCommand(args []string) error {
 	return pruneBuilder(false, true)
 }
 
-func cleanupDockerImages(dryRun bool, safe bool, verbose bool) error {
+func cleanupDockerImages(dryRun bool, verbose bool) error {
 	output.Info("Поиск dangling images...")
 	result, err := execx.Output("docker", "images", "-f", "dangling=true", "-q")
 	if err != nil {
@@ -48,26 +48,6 @@ func cleanupDockerImages(dryRun bool, safe bool, verbose bool) error {
 		return nil
 	}
 	idsToRemove := imageIDs
-	if safe {
-		usedResult, err := execx.Output("docker", "ps", "-a", "--format", "{{.Image}}")
-		if err != nil {
-			return err
-		}
-		used := make(map[string]struct{})
-		for _, image := range splitLines(usedResult.Stdout) {
-			used[image] = struct{}{}
-		}
-		idsToRemove = make([]string, 0)
-		for _, imageID := range imageIDs {
-			if _, exists := used[imageID]; !exists {
-				idsToRemove = append(idsToRemove, imageID)
-			}
-		}
-		if len(idsToRemove) == 0 {
-			output.Warn("Все найденные images используются. Удаление пропущено")
-			return nil
-		}
-	}
 	args := append([]string{"rmi"}, idsToRemove...)
 	var removeErr error
 	if verbose {

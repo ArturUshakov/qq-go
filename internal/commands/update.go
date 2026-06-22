@@ -3,6 +3,8 @@ package commands
 import (
 	"archive/tar"
 	"compress/gzip"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,13 +15,17 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ArturUshakov/qq-go/internal/command"
-	"github.com/ArturUshakov/qq-go/internal/execx"
-	"github.com/ArturUshakov/qq-go/internal/output"
-	"github.com/ArturUshakov/qq-go/internal/version"
+	"github.com/SolasWyrd/qq-go/internal/command"
+	"github.com/SolasWyrd/qq-go/internal/execx"
+	"github.com/SolasWyrd/qq-go/internal/output"
+	"github.com/SolasWyrd/qq-go/internal/version"
 )
 
-const githubRepository = "ArturUshakov/qq-go"
+const (
+	githubRepository       = "SolasWyrd/qq-go"
+	installPath            = "/usr/local/bin/qq"
+	maxDownloadSize  int64 = 100 << 20
+)
 
 type githubRelease struct {
 	TagName string `json:"tag_name"`
@@ -41,8 +47,11 @@ func updateCommand(registry *command.Registry) command.Command {
 }
 
 func selfUpdate(registry *command.Registry) error {
+	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+		return fmt.Errorf("self-update не поддерживается для %s", runtime.GOOS)
+	}
 	if version.Version == "dev" {
-		output.Warn("Текущая сборка dev. Проверка версии будет выполнена без сравнения.")
+		output.Warn("Текущая сборка dev. Версия будет обновлена без сравнения.")
 	}
 	release, err := fetchLatestRelease()
 	if err != nil {
@@ -57,28 +66,24 @@ func selfUpdate(registry *command.Registry) error {
 		return err
 	}
 	output.Info("Найдена версия %s: %s", release.TagName, assetName)
-	archivePath, err := downloadTempFile(assetURL)
+	archivePath, err := downloadTempFile(assetURL, assetName)
 	if err != nil {
 		return err
 	}
 	defer os.Remove(archivePath)
+	checksumURL := "https://github.com/" + githubRepository + "/releases/download/" + release.TagName + "/checksums.txt"
+	if err := verifyReleaseChecksum(archivePath, assetName, checksumURL); err != nil {
+		return err
+	}
 	binaryPath, err := extractBinary(archivePath)
 	if err != nil {
 		return err
 	}
 	defer os.Remove(binaryPath)
-	currentPath, err := os.Executable()
-	if err != nil {
+	if err := installBinary(binaryPath); err != nil {
 		return err
 	}
-	resolvedPath, err := filepath.EvalSymlinks(currentPath)
-	if err != nil {
-		resolvedPath = currentPath
-	}
-	if err := replaceBinary(resolvedPath, binaryPath); err != nil {
-		return err
-	}
-	output.Success("qq обновлен до %s", release.TagName)
+	output.Success("qq %s установлен: %s", release.TagName, installPath)
 	updateCompletionAfterSelfUpdate(registry)
 	return nil
 }
@@ -189,25 +194,79 @@ func findReleaseAsset(release githubRelease) (string, string, error) {
 	return "", "", fmt.Errorf("не найден release-asset для %s/%s", runtime.GOOS, runtime.GOARCH)
 }
 
-func downloadTempFile(url string) (string, error) {
-	client := &http.Client{Timeout: 60 * time.Second}
+func downloadTempFile(url string, assetName string) (string, error) {
+	client := &http.Client{Timeout: 2 * time.Minute}
 	response, err := client.Get(url)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("не удалось скачать архив: %w", err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("не удалось скачать архив: %s", response.Status)
 	}
+	if response.ContentLength > maxDownloadSize {
+		return "", fmt.Errorf("архив превышает лимит %d MB", maxDownloadSize>>20)
+	}
 	file, err := os.CreateTemp("", "qq-*.tar.gz")
 	if err != nil {
 		return "", err
 	}
-	defer file.Close()
-	if _, err := io.Copy(file, response.Body); err != nil {
+	defer func() { _ = file.Close() }()
+	progress := output.NewProgress("Скачивание "+assetName, response.ContentLength)
+	written, err := io.Copy(file, io.LimitReader(progress.Wrap(response.Body), maxDownloadSize+1))
+	if err != nil {
+		return "", fmt.Errorf("ошибка загрузки архива: %w", err)
+	}
+	if written > maxDownloadSize {
+		return "", fmt.Errorf("архив превышает лимит %d MB", maxDownloadSize>>20)
+	}
+	if err := file.Sync(); err != nil {
 		return "", err
 	}
+	progress.Finish("Архив скачан")
 	return file.Name(), nil
+}
+
+func verifyReleaseChecksum(archivePath, assetName, checksumURL string) error {
+	client := &http.Client{Timeout: 20 * time.Second}
+	response, err := client.Get(checksumURL)
+	if err != nil {
+		return fmt.Errorf("не удалось скачать checksums.txt: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("checksums.txt недоступен: %s", response.Status)
+	}
+	content, err := io.ReadAll(io.LimitReader(response.Body, 1<<20))
+	if err != nil {
+		return err
+	}
+	expected := ""
+	for _, line := range strings.Split(string(content), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 2 && strings.TrimPrefix(fields[len(fields)-1], "*") == assetName {
+			expected = fields[0]
+			break
+		}
+	}
+	if expected == "" {
+		return fmt.Errorf("checksum для %s не найден", assetName)
+	}
+	file, err := os.Open(archivePath)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return err
+	}
+	actual := hex.EncodeToString(hash.Sum(nil))
+	if !strings.EqualFold(actual, expected) {
+		return fmt.Errorf("checksum архива не совпадает")
+	}
+	output.Success("SHA-256 проверен")
+	return nil
 }
 
 func extractBinary(archivePath string) (string, error) {
@@ -252,40 +311,52 @@ func extractBinary(archivePath string) (string, error) {
 	return "", fmt.Errorf("в архиве не найден бинарник qq")
 }
 
-func replaceBinary(targetPath string, sourcePath string) error {
-	backupPath := targetPath + ".backup"
-	_ = os.Remove(backupPath)
-	if err := os.Rename(targetPath, backupPath); err != nil {
-		return fmt.Errorf("не удалось создать backup текущего бинарника: %w", err)
+func installBinary(sourcePath string) error {
+	if err := installBinaryDirect(sourcePath); err == nil {
+		return nil
 	}
-	input, err := os.Open(sourcePath)
-	if err != nil {
-		_ = os.Rename(backupPath, targetPath)
-		return err
+	if !execx.Exists("sudo") {
+		return fmt.Errorf("нет прав на запись в %s и sudo не найден", installPath)
 	}
-	defer input.Close()
-	outputFile, err := os.OpenFile(targetPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0755)
-	if err != nil {
-		_ = os.Rename(backupPath, targetPath)
-		return err
+	if err := execx.RunPassthrough("sudo", "install", "-m", "0755", sourcePath, installPath); err != nil {
+		return fmt.Errorf("не удалось установить бинарник через sudo: %w", err)
 	}
-	if _, err := io.Copy(outputFile, input); err != nil {
-		outputFile.Close()
-		_ = os.Rename(backupPath, targetPath)
-		return err
-	}
-	if err := outputFile.Close(); err != nil {
-		_ = os.Rename(backupPath, targetPath)
-		return err
-	}
-	_ = os.Remove(backupPath)
 	return nil
 }
 
-func checkTool(name string) {
-	if execx.Exists(name) {
-		output.Success("✔ %s найден", name)
-		return
+func installBinaryDirect(sourcePath string) error {
+	directory := filepath.Dir(installPath)
+	if err := os.MkdirAll(directory, 0755); err != nil {
+		return err
 	}
-	output.Warn("⚠ %s не найден", name)
+	input, err := os.Open(sourcePath)
+	if err != nil {
+		return err
+	}
+	defer input.Close()
+	temp, err := os.CreateTemp(directory, ".qq-update-*")
+	if err != nil {
+		return err
+	}
+	tempPath := temp.Name()
+	defer os.Remove(tempPath)
+	if _, err := io.Copy(temp, input); err != nil {
+		temp.Close()
+		return err
+	}
+	if err := temp.Sync(); err != nil {
+		temp.Close()
+		return err
+	}
+	if err := temp.Chmod(0755); err != nil {
+		temp.Close()
+		return err
+	}
+	if err := temp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tempPath, installPath); err != nil {
+		return err
+	}
+	return nil
 }

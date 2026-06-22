@@ -4,15 +4,13 @@ import (
 	"bufio"
 	"fmt"
 	"os"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 
-	"github.com/ArturUshakov/qq-go/internal/command"
-	"github.com/ArturUshakov/qq-go/internal/execx"
-	"github.com/ArturUshakov/qq-go/internal/output"
+	"github.com/SolasWyrd/qq-go/internal/command"
+	"github.com/SolasWyrd/qq-go/internal/execx"
+	"github.com/SolasWyrd/qq-go/internal/output"
 )
 
 func RegisterContainers(registry *command.Registry) error {
@@ -20,7 +18,7 @@ func RegisterContainers(registry *command.Registry) error {
 		{Names: []string{"list", "-l"}, Group: "container", Description: "Показать запущенные Docker-проекты", Run: listContainers},
 		{Names: []string{"down", "-d"}, Group: "container", Description: "Остановить все контейнеры или контейнеры по имени/проекту", Run: stopContainers},
 		{Names: []string{"exec", "-e"}, Group: "container", Description: "Войти в контейнер по части имени. Флаг -r — root", Run: execInContainer},
-		{Names: []string{"network", "-net"}, Group: "container", Description: "Показать локальный IP и проверить HTTP-доступ к портам контейнеров", Run: networkConnect},
+		{Names: []string{"network", "-net"}, Group: "container", Description: "Показать локальный IP и проброшенные порты контейнеров", Run: networkConnect},
 	}
 	for _, cmd := range commands {
 		if err := registry.Register(cmd); err != nil {
@@ -41,7 +39,6 @@ func listContainers(args []string) error {
 		output.Info("Нет контейнеров")
 		return nil
 	}
-	webServices := []string{"nginx", "apache", "node", "vite", "react", "flask", "laravel", "express", "next", "nuxt", "adminer", "grafana", "portainer"}
 	type containerInfo struct{ name, status, portInfo string }
 	allProjects := make(map[string][]containerInfo)
 	activeProjects := make(map[string]bool)
@@ -50,7 +47,7 @@ func listContainers(args []string) error {
 		if len(parts) < 4 {
 			continue
 		}
-		name, status, project, image := parts[0], parts[1], parts[2], parts[3]
+		name, status, project := parts[0], parts[1], parts[2]
 		ports := ""
 		if len(parts) >= 5 {
 			ports = parts[4]
@@ -64,11 +61,7 @@ func listContainers(args []string) error {
 			urlPorts := extractPorts(ports)
 			formattedPorts := make([]string, 0, len(urlPorts))
 			for _, port := range urlPorts {
-				if containsService(image, webServices) {
-					formattedPorts = append(formattedPorts, "http://localhost:"+port)
-				} else {
-					formattedPorts = append(formattedPorts, port+"/tcp")
-				}
+				formattedPorts = append(formattedPorts, "localhost:"+port)
 			}
 			if len(formattedPorts) > 0 {
 				portInfo = strings.Join(uniqueSorted(formattedPorts), ", ")
@@ -97,55 +90,41 @@ func listContainers(args []string) error {
 }
 
 func stopContainers(args []string) error {
-	startedAt := time.Now()
-	if len(args) == 0 {
-		result, err := execx.Output("docker", "ps", "-q")
-		if err != nil {
-			return err
-		}
-		ids := splitLines(result.Stdout)
-		if len(ids) == 0 {
-			output.Warn("Нет запущенных контейнеров для остановки")
-			return nil
-		}
-		killArgs := append([]string{"kill"}, ids...)
-		if err := execx.RunPassthrough("docker", killArgs...); err != nil {
-			return err
-		}
-		output.Success("Все контейнеры остановлены")
-		output.Plain("Время выполнения: %.2f секунд", time.Since(startedAt).Seconds())
-		return nil
+	filter := ""
+	if len(args) > 1 {
+		return fmt.Errorf("использование: qq down [имя|project]")
 	}
-	filter := args[0]
+	if len(args) == 1 {
+		filter = strings.ToLower(args[0])
+	}
 	format := `{{.ID}}	{{.Names}}	{{.Label "com.docker.compose.project"}}`
 	result, err := execx.Output("docker", "ps", "--format", format)
 	if err != nil {
 		return err
 	}
-	var ids []string
+	ids := make([]string, 0)
 	for _, line := range splitLines(result.Stdout) {
-		parts := strings.Split(line, "\t")
+		parts := strings.Split(line, "	")
 		if len(parts) < 2 {
 			continue
 		}
 		project := ""
-		if len(parts) >= 3 {
+		if len(parts) > 2 {
 			project = parts[2]
 		}
-		if strings.Contains(project, filter) || strings.Contains(parts[1], filter) {
+		if filter == "" || strings.Contains(strings.ToLower(parts[1]), filter) || strings.Contains(strings.ToLower(project), filter) {
 			ids = append(ids, parts[0])
 		}
 	}
 	if len(ids) == 0 {
-		output.Warn("Контейнеры по фильтру %q не найдены", filter)
+		output.Warn("Нет подходящих запущенных контейнеров")
 		return nil
 	}
-	killArgs := append([]string{"kill"}, ids...)
-	if err := execx.RunPassthrough("docker", killArgs...); err != nil {
+	stopArgs := append([]string{"stop"}, ids...)
+	if err := execx.RunPassthrough("docker", stopArgs...); err != nil {
 		return err
 	}
-	output.Success("Контейнеры остановлены: %d", len(ids))
-	output.Plain("Время выполнения: %.2f секунд", time.Since(startedAt).Seconds())
+	output.Success("Контейнеры корректно остановлены: %d", len(ids))
 	return nil
 }
 
@@ -191,6 +170,9 @@ func execInContainer(args []string) error {
 }
 
 func networkConnect(args []string) error {
+	if len(args) > 0 {
+		return fmt.Errorf("команда network не принимает аргументы")
+	}
 	ip := getLocalIP()
 	result, err := execx.Output("docker", "ps", "--format", `{{.Names}}	{{.Ports}}`)
 	if err != nil {
@@ -200,7 +182,7 @@ func networkConnect(args []string) error {
 	options := make([]option, 0)
 	seen := make(map[string]struct{})
 	for _, line := range splitLines(result.Stdout) {
-		parts := strings.Split(line, "\t")
+		parts := strings.Split(line, "	")
 		if len(parts) != 2 {
 			continue
 		}
@@ -217,26 +199,17 @@ func networkConnect(args []string) error {
 		output.Warn("Нет контейнеров с проброшенными портами")
 		return nil
 	}
-	output.Info("Локальный IP вашей машины: %s", ip)
-	for i, option := range options {
-		output.Plain("%d. %-35s → http://%s:%s", i+1, option.name, ip, option.port)
+	sort.Slice(options, func(i, j int) bool {
+		if options[i].name == options[j].name {
+			return options[i].port < options[j].port
+		}
+		return options[i].name < options[j].name
+	})
+	output.Info("Локальный IP: %s", ip)
+	for _, option := range options {
+		output.Plain("%-35s %s:%s", option.name, ip, option.port)
 	}
-	fmt.Print("\nВведите номер проекта: ")
-	scanner := bufio.NewScanner(os.Stdin)
-	if !scanner.Scan() {
-		return fmt.Errorf("не удалось прочитать ввод")
-	}
-	choice, err := strconv.Atoi(strings.TrimSpace(scanner.Text()))
-	if err != nil || choice < 1 || choice > len(options) {
-		return fmt.Errorf("неверный ввод")
-	}
-	selected := options[choice-1]
-	url := fmt.Sprintf("http://%s:%s", ip, selected.port)
-	if checkHTTP(url) {
-		output.Success("Соединение успешно: %s", url)
-		return nil
-	}
-	return fmt.Errorf("не удалось подключиться к %s", url)
+	return nil
 }
 
 func findContainer(partialName string) (string, error) {
@@ -247,6 +220,9 @@ func findContainer(partialName string) (string, error) {
 	partial := strings.ToLower(partialName)
 	matches := make([]string, 0)
 	for _, name := range splitLines(result.Stdout) {
+		if strings.EqualFold(name, partialName) {
+			return name, nil
+		}
 		if strings.Contains(strings.ToLower(name), partial) {
 			matches = append(matches, name)
 		}
@@ -256,6 +232,9 @@ func findContainer(partialName string) (string, error) {
 	}
 	if len(matches) == 1 {
 		return matches[0], nil
+	}
+	if !output.IsTerminal(os.Stdin) {
+		return "", fmt.Errorf("найдено несколько контейнеров: %s; укажите точное имя", strings.Join(matches, ", "))
 	}
 	output.Warn("Найдено несколько контейнеров:")
 	for i, name := range matches {
@@ -289,29 +268,24 @@ func translateStatus(status string) string {
 }
 
 func extractPorts(ports string) []string {
-	regexpValue := regexp.MustCompile(`(?:[\d.]+:)?(\d+)->|^(\d+)/tcp$`)
-	matches := regexpValue.FindAllStringSubmatch(ports, -1)
-	result := make([]string, 0, len(matches))
-	for _, match := range matches {
-		port := match[1]
-		if port == "" && len(match) > 2 {
-			port = match[2]
+	result := make([]string, 0)
+	for _, mapping := range strings.Split(ports, ",") {
+		mapping = strings.TrimSpace(mapping)
+		arrow := strings.Index(mapping, "->")
+		if arrow < 0 {
+			continue
 		}
-		if port != "" {
+		host := mapping[:arrow]
+		colon := strings.LastIndex(host, ":")
+		if colon < 0 || colon == len(host)-1 {
+			continue
+		}
+		port := host[colon+1:]
+		if _, err := strconv.Atoi(port); err == nil {
 			result = append(result, port)
 		}
 	}
-	return result
-}
-
-func containsService(image string, services []string) bool {
-	image = strings.ToLower(image)
-	for _, service := range services {
-		if strings.Contains(image, service) {
-			return true
-		}
-	}
-	return false
+	return uniqueSorted(result)
 }
 
 func uniqueSorted(values []string) []string {

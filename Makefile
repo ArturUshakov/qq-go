@@ -2,7 +2,7 @@ APP_NAME=qq
 VERSION?=dev
 COMMIT?=$(shell git rev-parse --short HEAD 2>/dev/null || echo none)
 DATE?=$(shell date -u +%Y-%m-%dT%H:%M:%SZ)
-LDFLAGS=-s -w -X github.com/ArturUshakov/qq-go/internal/version.Version=$(VERSION) -X github.com/ArturUshakov/qq-go/internal/version.Commit=$(COMMIT) -X github.com/ArturUshakov/qq-go/internal/version.Date=$(DATE)
+LDFLAGS=-s -w -X github.com/SolasWyrd/qq-go/internal/version.Version=$(VERSION) -X github.com/SolasWyrd/qq-go/internal/version.Commit=$(COMMIT) -X github.com/SolasWyrd/qq-go/internal/version.Date=$(DATE)
 
 .PHONY: build test lint clean release-local check-release-version check-git-clean release
 

@@ -1,6 +1,6 @@
 package commands
 
-import "github.com/ArturUshakov/qq-go/internal/command"
+import "github.com/SolasWyrd/qq-go/internal/command"
 
 func RegisterAll(registry *command.Registry) error {
 	registrars := []func(*command.Registry) error{

@@ -2,9 +2,7 @@ package commands
 
 import (
 	"net"
-	"net/http"
 	"strings"
-	"time"
 )
 
 func splitLines(value string) []string {
@@ -34,14 +32,4 @@ func getLocalIP() string {
 		return "127.0.0.1"
 	}
 	return localAddress.IP.String()
-}
-
-func checkHTTP(url string) bool {
-	client := http.Client{Timeout: 2 * time.Second}
-	response, err := client.Get(url)
-	if err != nil {
-		return false
-	}
-	defer response.Body.Close()
-	return response.StatusCode >= 200 && response.StatusCode < 400
 }

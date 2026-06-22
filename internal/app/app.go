@@ -1,11 +1,9 @@
 package app
 
 import (
-	"fmt"
-
-	"github.com/ArturUshakov/qq-go/internal/command"
-	"github.com/ArturUshakov/qq-go/internal/commands"
-	"github.com/ArturUshakov/qq-go/internal/output"
+	"github.com/SolasWyrd/qq-go/internal/command"
+	"github.com/SolasWyrd/qq-go/internal/commands"
+	"github.com/SolasWyrd/qq-go/internal/output"
 )
 
 type App struct {
@@ -43,15 +41,4 @@ func (app *App) Run(args []string) int {
 		return 1
 	}
 	return 0
-}
-
-func (app *App) Registry() *command.Registry {
-	return app.registry
-}
-
-func Register(registry *command.Registry, cmd command.Command) error {
-	if err := registry.Register(cmd); err != nil {
-		return fmt.Errorf("register %s: %w", cmd.Names[0], err)
-	}
-	return nil
 }
