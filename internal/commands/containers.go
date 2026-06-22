@@ -29,7 +29,7 @@ func RegisterContainers(registry *command.Registry) error {
 }
 
 func listContainers(args []string) error {
-	format := `{{.Names}}	{{.Status}}	{{.Label "com.docker.compose.project"}}	{{.Image}}	{{.Ports}}`
+	format := `{{.Names}}	{{.Status}}	{{.Label "com.docker.compose.project"}}	{{.Label "com.docker.compose.service"}}	{{.Image}}	{{.Ports}}`
 	result, err := execx.Output("docker", "ps", "-a", "--format", format)
 	if err != nil {
 		return err
@@ -44,13 +44,14 @@ func listContainers(args []string) error {
 	activeProjects := make(map[string]bool)
 	for _, line := range lines {
 		parts := strings.Split(line, "\t")
-		if len(parts) < 4 {
+		if len(parts) < 5 {
 			continue
 		}
 		name, status, project := parts[0], parts[1], parts[2]
+		service, image := parts[3], parts[4]
 		ports := ""
-		if len(parts) >= 5 {
-			ports = parts[4]
+		if len(parts) >= 6 {
+			ports = parts[5]
 		}
 		if project == "" {
 			project = "без docker-compose project"
@@ -58,10 +59,13 @@ func listContainers(args []string) error {
 		statusRU := translateStatus(status)
 		portInfo := ports
 		if strings.Contains(status, "Up") {
-			urlPorts := extractPorts(ports)
-			formattedPorts := make([]string, 0, len(urlPorts))
-			for _, port := range urlPorts {
-				formattedPorts = append(formattedPorts, "localhost:"+port)
+			mappings := extractPortMappings(ports)
+			formattedPorts := make([]string, 0, len(mappings))
+			for _, mapping := range mappings {
+				formattedPorts = append(
+					formattedPorts,
+					formatPublishedPort(name, service, image, mapping),
+				)
 			}
 			if len(formattedPorts) > 0 {
 				portInfo = strings.Join(uniqueSorted(formattedPorts), ", ")
@@ -267,25 +271,91 @@ func translateStatus(status string) string {
 	}
 }
 
+type portMapping struct {
+	hostPort      string
+	containerPort string
+}
+
 func extractPorts(ports string) []string {
-	result := make([]string, 0)
-	for _, mapping := range strings.Split(ports, ",") {
-		mapping = strings.TrimSpace(mapping)
-		arrow := strings.Index(mapping, "->")
+	mappings := extractPortMappings(ports)
+	result := make([]string, 0, len(mappings))
+	for _, mapping := range mappings {
+		result = append(result, mapping.hostPort)
+	}
+
+	return uniqueSorted(result)
+}
+
+func extractPortMappings(ports string) []portMapping {
+	seen := make(map[string]struct{})
+	result := make([]portMapping, 0)
+
+	for _, rawMapping := range strings.Split(ports, ",") {
+		rawMapping = strings.TrimSpace(rawMapping)
+		arrow := strings.Index(rawMapping, "->")
 		if arrow < 0 {
 			continue
 		}
-		host := mapping[:arrow]
+
+		host := rawMapping[:arrow]
+		target := rawMapping[arrow+2:]
 		colon := strings.LastIndex(host, ":")
-		if colon < 0 || colon == len(host)-1 {
+		slash := strings.Index(target, "/")
+		if colon < 0 || colon == len(host)-1 || slash <= 0 {
 			continue
 		}
-		port := host[colon+1:]
-		if _, err := strconv.Atoi(port); err == nil {
-			result = append(result, port)
+
+		hostPort := host[colon+1:]
+		containerPort := target[:slash]
+		if _, err := strconv.Atoi(hostPort); err != nil {
+			continue
 		}
+		if _, err := strconv.Atoi(containerPort); err != nil {
+			continue
+		}
+
+		key := hostPort + ":" + containerPort
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		result = append(result, portMapping{hostPort: hostPort, containerPort: containerPort})
 	}
-	return uniqueSorted(result)
+
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].hostPort == result[j].hostPort {
+			return result[i].containerPort < result[j].containerPort
+		}
+
+		return result[i].hostPort < result[j].hostPort
+	})
+
+	return result
+}
+
+func formatPublishedPort(name, service, image string, mapping portMapping) string {
+	if !isWebContainer(name, service, image) {
+		return "localhost:" + mapping.hostPort
+	}
+
+	scheme := "http"
+	if mapping.containerPort == "443" || mapping.hostPort == "443" || mapping.hostPort == "8443" {
+		scheme = "https"
+	}
+
+	return fmt.Sprintf("%s://localhost:%s", scheme, mapping.hostPort)
+}
+
+func isWebContainer(name, service, image string) bool {
+	candidate := strings.ToLower(strings.Join([]string{name, service, image}, " "))
+	for _, marker := range []string{"nginx", "apache", "httpd", "caddy", "traefik"} {
+		if strings.Contains(candidate, marker) {
+			return true
+		}
+
+	}
+
+	return false
 }
 
 func uniqueSorted(values []string) []string {

@@ -54,6 +54,14 @@ func RunInteractive(name string, args ...string) error {
 	cmd.Stdout, cmd.Stderr, cmd.Stdin = os.Stdout, os.Stderr, os.Stdin
 	return cmd.Run()
 }
+
+func RunWithTerminal(terminal *os.File, name string, args ...string) error {
+	cmd := exec.Command(name, args...)
+	cmd.Stdin = terminal
+	cmd.Stdout = terminal
+	cmd.Stderr = terminal
+	return cmd.Run()
+}
 func RunQuiet(name string, args ...string) error { return exec.Command(name, args...).Run() }
 func RunPassthrough(name string, args ...string) error {
 	cmd := exec.Command(name, args...)

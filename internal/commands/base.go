@@ -243,7 +243,7 @@ func appendBlockIfMissing(path string, marker string, block string) error {
 func runDoctor() error {
 	output.Title("Проверка окружения")
 	output.Plain("OS/Arch: %s/%s", runtime.GOOS, runtime.GOARCH)
-	required := []string{"docker", "git", "openssl", "stty"}
+	required := []string{"docker", "git", "stty"}
 	missing := make([]string, 0)
 	for _, tool := range required {
 		if execx.Exists(tool) {
@@ -252,6 +252,12 @@ func runDoctor() error {
 			output.Warn("⚠ %s не найден", tool)
 			missing = append(missing, tool)
 		}
+	}
+	if execx.Exists("htpasswd") || execx.Exists("php") || execx.Exists("openssl") {
+		output.Success("✔ генератор password hash найден")
+	} else {
+		output.Warn("⚠ не найден htpasswd, PHP или OpenSSL")
+		missing = append(missing, "htpasswd/php/openssl")
 	}
 	if len(missing) > 0 {
 		return fmt.Errorf("отсутствуют обязательные утилиты: %s", strings.Join(missing, ", "))

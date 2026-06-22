@@ -114,7 +114,7 @@ qq -pb
 
 ## Системные команды
 
-Сгенерировать password hash без передачи пароля через аргументы процесса:
+Сгенерировать bcrypt password hash без передачи пароля через аргументы процесса. Используется `htpasswd`, затем PHP; OpenSSL SHA-512 применяется только как совместимый fallback:
 
 ```bash
 qq generate-password-hash
